@@ -1,0 +1,277 @@
+:PROPERTIES:
+:ID:       1671d067-315c-4da3-82d9-ed030d049c18
+:END:
+#+title: C stuff
+* TCP server client and TCP server in C with multithreading.
+#+OPTIONS: ^:{}
+** Necessary imports
+*** Definitions for internet operations
+#+BEGIN_SRC c :noweb-ref inet
+#include <arpa/inet.h>
+#+END_SRC
+*** Posix thread API
+#+BEGIN_SRC c :tangle server.c
+#include <pthread.h>
+#+END_SRC
+*** Standard libraries and the sort
+#+BEGIN_SRC c :noweb-ref stdlibs
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#+END_SRC
+*** Import them in both files
+#+BEGIN_SRC c :noweb yes :tangle server.c
+<<inet>>
+<<stdlibs>>
+#+END_SRC
+#+BEGIN_SRC c :noweb yes :tangle client.c 
+<<inet>>
+<<stdlibs>>
+#+END_SRC
+
+
+** Initialize active connections counter and setup connection mutex
+#+BEGIN_SRC c :tangle server.c
+int active_connections = 0;
+pthread_mutex_t connection_mutex = PTHREAD_MUTEX_INITIALIZER;
+#+END_SRC
+** Define the port macro (8080)
+#+BEGIN_SRC c :noweb-ref port
+#define PORT 8080
+#+END_SRC
+#+BEGIN_SRC c :noweb yes :tangle client.c
+  <<port>>
+#+END_SRC
+#+BEGIN_SRC c :noweb yes :tangle server.c
+  <<port>>
+#+END_SRC
+** Handle client connections
+Define the function handle_client
+
+*** Local Variables:
+- client_sock: int, client socket descriptor
+- buffer: char array[1024], buffer for receiving data
+*** Parameters
+- arg: void pointer to client socket descriptor
+  
+*** Create function handle_client
+#+BEGIN_SRC c :tangle server.c
+void *handle_client(void *arg) {
+#+END_SRC
+Extract an integer value from a void pointer (arg) and store it in client_sock
+#+BEGIN_SRC c :tangle server.c
+ int client_sock = *(int *)arg;
+#+END_SRC
+Initialize a character array(buffer) of size 1024 with all elements set to 0
+#+BEGIN_SRC c :tangle server.c
+  char buffer[1024] = {0};
+#+END_SRC
+Lock connection_mutex to ensure exclusive access to shared resources and increment the active_connections counter, then unlock the mutex to allow other threads to access the resource again.
+#+BEGIN_SRC c :tangle server.c
+  pthread_mutex_lock(&connection_mutex);
+  active_connections++;
+  pthread_mutex_unlock(&connection_mutex);
+#+END_SRC
+Read data from a client, prints the received message to the console, and sends a confirmation message to client
+#+BEGIN_SRC c :tangle server.c
+  // Receive and send data to/from client
+  printf("Received: %s\n", buffer);
+  write(client_sock, "Message received", 16);
+#+END_SRC
+Do the same thing we did earlier but decrease active_connections
+#+BEGIN_SRC c :tangle server.c
+  pthread_mutex_lock(&connection_mutex);
+  active_connections--;
+  pthread_mutex_unlock(&connection_mutex);
+#+END_SRC
+Close the client socket connection and return NULL to indicate the end of the function execution
+#+BEGIN_SRC c :tangle server.c
+  close(client_sock);
+  return NULL;
+}
+#+END_SRC
+*** Main function
+#+BEGIN_SRC c :tangle server.c
+int main() {
+#+END_SRC
+**** Unique thread identifier
+thread_id stores the unique identifier for a thread, we need this for thread management
+#+BEGIN_SRC c :tangle server.c
+pthread_t thread_id;
+#+END_SRC
+**** Create a new socket
+Creates a new socket file descriptor and assigns it to `server_fd`.
+If the socket creation fails, it prints an error message and exits the program.
+#+BEGIN_SRC c :tangle server.c
+  int server_fd, new_socket;
+  struct sockaddr_in address;
+  if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
+    perror("socket failed");
+    exit(EXIT_FAILURE);
+  }
+#+END_SRC
+**** Set socket options on the socket reffered by server_fd:
+- SO_REUSEADDR allows the socket to bind to an adress that is already in TIME_WAIT state
+- SO_REUSEPORT allows multiple sockets to be bound to the same port
+#+BEGIN_SRC c :tangle server.c
+  int opt = 1;
+  
+  if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt,
+                 sizeof(opt))) {
+    perror("setsockopt");
+    exit(EXIT_FAILURE);
+  }
+#+END_SRC
+Configure a sockaddr_in structure to bind a socket to any available network interface on the machine, using the specified port number.
+#+BEGIN_SRC c :tangle server.c
+  address.sin_family = AF_INET;
+  address.sin_addr.s_addr = INADDR_ANY;
+  address.sin_port = htons(PORT);
+#+END_SRC
+**** Bind socket to a port
+Bind the socket identified by server_fd to a specific ip and port defined the address structure.
+#+BEGIN_SRC c :tangle server.c
+ if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
+    perror("bind failed");
+    exit(EXIT_FAILURE);
+  }
+#+END_SRC
+Print what port we are listening for connections on
+#+BEGIN_SRC c :tangle server.c
+  printf("Listener on port %d \n", PORT);
+#+END_SRC
+**** Listen for connections
+#+BEGIN_SRC c :tangle server.c
+  if (listen(server_fd, 3) < 0) {
+    perror("listen");
+    exit(EXIT_FAILURE);
+  }
+  printf("Waiting for connections...\n");
+#+END_SRC
+**** Check for client connections and handle them by creating a new thread for each connection
+Run this code forever
+#+BEGIN_SRC c :tangle server.c
+  while (1) {
+#+END_SRC
+Accept an incoming connection on the socket server_fd, creating a new socket descriptor for the connection and deterring the program if it fails
+#+BEGIN_SRC c :tangle server.c
+    int addrlen = sizeof(address);
+  if ((new_socket = accept(server_fd, (struct sockaddr *)&address,
+                           (socklen_t *)&addrlen)) < 0) {
+    perror("accept");
+    exit(EXIT_FAILURE);
+  }
+      printf("Connection accepted\n");
+#+END_SRC
+Create a new thread to handle the client connection using the handle_client function, passing the new socket filter as an argument, and detach the thread.
+#+BEGIN_SRC c :tangle server.c
+  pthread_create(&thread_id, NULL, handle_client, (void *)&new_socket);
+  pthread_detach(thread_id);
+  }
+#+END_SRC
+End the function execution
+#+BEGIN_SRC c :tangle server.c
+  return 0;
+}
+#+END_SRC
+** Client-Side Operations
+*** Create socket
+#+BEGIN_SRC c :tangle client.c
+int create_socket() {
+    int sock = 0;
+    if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        perror("Socket creation failed");
+        exit(EXIT_FAILURE);
+    }
+    return sock;
+}
+#+END_SRC
+
+*** Configure server address
+#+BEGIN_SRC c :tangle client.c
+void configure_server_address(struct sockaddr_in *serv_addr, const char *ip_address, int port) {
+    serv_addr->sin_family = AF_INET;
+    serv_addr->sin_port = htons(port);
+    if (inet_pton(AF_INET, ip_address, &serv_addr->sin_addr) <= 0) {
+        perror("Invalid address/Address not supported");
+        exit(EXIT_FAILURE);
+    }
+}
+#+END_SRC
+
+*** Connect to the server
+#+BEGIN_SRC c :tangle client.c
+int connect_to_server(int sock, struct sockaddr_in *serv_addr) {
+    if (connect(sock, (struct sockaddr *)serv_addr, sizeof(*serv_addr)) < 0) {
+        perror("Connection Failed");
+        exit(EXIT_FAILURE);
+    }
+    return 0;
+}
+#+END_SRC
+
+
+*** Send a message to the server
+#+BEGIN_SRC c :tangle client.c
+void send_message(int sock, const char *message) {
+    if (send(sock, message, strlen(message), 0) < 0) {
+        perror("Send failed");
+        exit(EXIT_FAILURE);
+    }
+    printf("Message sent\n");
+}
+#+END_SRC
+
+*** Receive a message from the server
+#+BEGIN_SRC c :tangle client.c
+void receive_message(int sock, char *buffer) {
+    if (read(sock, buffer, 1024) < 0) {
+        perror("Read failed");
+        exit(EXIT_FAILURE);
+    }
+    printf("%s\n", buffer);
+}
+#+END_SRC
+
+
+*** Main function
+#+BEGIN_SRC c :tangle client.c
+int main() {
+#+END_SRC
+      Create a socket and assign its file descriptor to the variable sock
+  #+BEGIN_SRC c :tangle client.c
+    int sock = create_socket();
+#+END_SRC
+Declare server address structure
+#+BEGIN_SRC c :tangle client.c
+  struct sockaddr_in serv_addr;
+#+END_SRC
+Message to send to server
+#+BEGIN_SRC c :tangle client.c
+  char *message = "Hello Server!";
+                  #+END_SRC
+Buffer for receiving data
+#+BEGIN_SRC c :tangle client.c
+  char buffer[1024] = {0};
+#+END_SRC
+Configure server address to localhost + port
+#+BEGIN_SRC c :tangle client.c
+  configure_server_address(&serv_addr, "127.0.0.1", PORT);
+#+END_SRC
+Connect to server and send message
+#+BEGIN_SRC c :tangle client.c
+  connect_to_server(sock, &serv_addr); 
+  send_message(sock, message); 
+#+END_SRC
+Wait and receive a response from the server
+#+BEGIN_SRC c :tangle client.c  
+  receive_message(sock, buffer);
+#+END_SRC
+Close the socket
+#+BEGIN_SRC c :tangle client.c
+   close(sock); 
+   return 0;
+  }
+#+END_SRC
+
