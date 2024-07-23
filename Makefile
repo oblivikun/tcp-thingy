@@ -17,3 +17,4 @@ check-file:
 compile: tangle-org
 	cc -o client client.c
 	cc -o server server.c
+.DEFAULT_GOAL := compile
