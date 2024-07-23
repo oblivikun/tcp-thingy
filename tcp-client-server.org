@@ -74,6 +74,7 @@ Lock connection_mutex to ensure exclusive access to shared resources and increme
 Read data from a client, prints the received message to the console, and sends a confirmation message to client
 #+BEGIN_SRC c :tangle server.c
   // Receive and send data to/from client
+    read(client_sock, buffer, sizeof(buffer));
   printf("Received: %s\n", buffer);
   write(client_sock, "Message received", 16);
 #+END_SRC
