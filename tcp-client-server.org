@@ -1,6 +1,4 @@
-:PROPERTIES:
-:ID:       1671d067-315c-4da3-82d9-ed030d049c18
-:END:
+
 #+title: C stuff
 * TCP server client and TCP server in C with multithreading.
 #+OPTIONS: ^:{}
